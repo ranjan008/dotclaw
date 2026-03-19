@@ -3,6 +3,7 @@ DISCOM OT Intelligence POC — Mock OT API Server
 Simulates SCADA, OMS, and MDMS/AMI endpoints for testing.
 """
 
+import utils.session
 import os
 from datetime import datetime, timedelta
 from functools import wraps
