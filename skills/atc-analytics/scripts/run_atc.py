@@ -107,9 +107,25 @@ def print_report(data: list) -> None:
 def main():
     parser = argparse.ArgumentParser(description="AT&C Loss Analytics Report")
     parser.add_argument("--days", type=int, default=7, help="Number of days (default: 7)")
+    parser.add_argument(
+        "--allowed-feeders",
+        default="",
+        help="Comma-separated whitelist of permitted feeder IDs (RBAC scope). "
+             "Filters the top-loss feeder list to only show permitted feeders.",
+    )
     args = parser.parse_args()
 
     data = fetch_atc(args.days)
+
+    # RBAC scope filter — restrict top-loss feeder rows to allowed feeders only
+    allowed_feeders = [f.strip().upper() for f in args.allowed_feeders.split(",") if f.strip()]
+    if allowed_feeders:
+        for row in data:
+            row["top_loss_feeders"] = [
+                f for f in row.get("top_loss_feeders", [])
+                if f.get("feeder", "").upper() in allowed_feeders
+            ]
+
     print_report(data)
 
 

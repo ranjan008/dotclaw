@@ -75,9 +75,28 @@ def print_summary(data: dict) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Fetch live SCADA data for a feeder")
     parser.add_argument("--feeder", required=True, help="Feeder ID (e.g. FDR-002)")
+    parser.add_argument(
+        "--allowed-feeders",
+        default="",
+        help="Comma-separated whitelist of permitted feeder IDs (RBAC scope). "
+             "Empty means no restriction.",
+    )
     args = parser.parse_args()
 
-    data = fetch_feeder(args.feeder.upper())
+    feeder_id = args.feeder.upper()
+
+    # RBAC scope check — enforced at skill level as a second defence layer
+    if args.allowed_feeders:
+        allowed = [f.strip().upper() for f in args.allowed_feeders.split(",") if f.strip()]
+        if allowed and feeder_id not in allowed:
+            print(
+                f"ACCESS DENIED: Feeder {feeder_id} is outside your permitted scope.\n"
+                f"Permitted feeders: {', '.join(allowed)}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+    data = fetch_feeder(feeder_id)
     print_summary(data)
 
 

@@ -137,9 +137,27 @@ def main():
         default=None,
         help="Filter by anomaly type (tamper, zero_read, comm_failure)",
     )
+    parser.add_argument(
+        "--allowed-dts",
+        default="",
+        help="Comma-separated whitelist of permitted DT cluster IDs (RBAC scope). "
+             "Empty means no restriction.",
+    )
+    parser.add_argument(
+        "--allowed-feeders",
+        default="",
+        help="Comma-separated whitelist of permitted feeder IDs (RBAC scope, "
+             "used when DT-to-feeder mapping is available).",
+    )
     args = parser.parse_args()
 
     anomalies = fetch_anomalies(anomaly_type=args.anomaly_type)
+
+    # RBAC scope filter — restrict to allowed DT clusters
+    allowed_dts = [d.strip().upper() for d in args.allowed_dts.split(",") if d.strip()]
+    if allowed_dts:
+        anomalies = [a for a in anomalies if a.get("dt_id", "").upper() in allowed_dts]
+
     print_report(anomalies, type_filter=args.anomaly_type)
 
 

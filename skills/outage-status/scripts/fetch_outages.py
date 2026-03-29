@@ -111,9 +111,30 @@ def print_report(outages: list, zone_filter: str = None) -> None:
 def main():
     parser = argparse.ArgumentParser(description="Fetch active outages from OMS")
     parser.add_argument("--zone", help="Filter by zone (e.g. Zone-A)", default=None)
+    parser.add_argument(
+        "--allowed-zones",
+        default="",
+        help="Comma-separated whitelist of permitted zones (RBAC scope). "
+             "Empty means no restriction.",
+    )
+    parser.add_argument(
+        "--allowed-feeders",
+        default="",
+        help="Comma-separated whitelist of permitted feeder IDs (RBAC scope).",
+    )
     args = parser.parse_args()
 
     outages = fetch_outages(zone=args.zone)
+
+    # RBAC scope filter — silently drop rows outside the user's allowed scope
+    allowed_zones   = [z.strip() for z in args.allowed_zones.split(",")   if z.strip()]
+    allowed_feeders = [f.strip().upper() for f in args.allowed_feeders.split(",") if f.strip()]
+
+    if allowed_zones:
+        outages = [o for o in outages if o.get("zone", "") in allowed_zones]
+    if allowed_feeders:
+        outages = [o for o in outages if o.get("feeder_id", "").upper() in allowed_feeders]
+
     print_report(outages, zone_filter=args.zone)
 
 
