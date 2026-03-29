@@ -1,0 +1,104 @@
+domain: supplychain
+display_name: "Supply Chain Management"
+
+# ---------------------------------------------------------------------------
+# Roles
+# ---------------------------------------------------------------------------
+roles:
+  field_executive:
+    display: "Field Executive"
+    global_access: false
+  warehouse_officer:
+    display: "Warehouse Officer"
+    global_access: false
+  logistics_manager:
+    display: "Logistics Manager"
+    global_access: false
+  procurement_officer:
+    display: "Procurement Officer"
+    global_access: false
+  plant_manager:
+    display: "Plant Manager"
+    global_access: false
+  regional_head:
+    display: "Regional Head"
+    global_access: false
+  vp_operations:
+    display: "VP Operations / COO"
+    global_access: true
+  cfo:
+    display: "CFO"
+    global_access: true
+  it_admin:
+    display: "IT Admin"
+    global_access: true
+
+# ---------------------------------------------------------------------------
+# Org-unit hierarchy
+# ---------------------------------------------------------------------------
+org_unit_keys:
+  - region
+  - plant
+  - warehouse
+
+# ---------------------------------------------------------------------------
+# Scope resource keys
+# ---------------------------------------------------------------------------
+scope_keys:
+  - plants       # plant codes, e.g. PLANT-MUM
+  - warehouses   # warehouse codes, e.g. WH-DEL-01
+  - vendors      # vendor codes, e.g. VND-0042
+  - categories   # procurement categories, e.g. CAT-RAW
+
+# ---------------------------------------------------------------------------
+# Resource ID patterns
+# ---------------------------------------------------------------------------
+resource_patterns:
+  plants:      '\bPLANT-[A-Z0-9]+\b'
+  warehouses:  '\bWH-[A-Z0-9\-]+\b'
+  vendors:     '\bVND-\d+\b'
+  categories:  '\bCAT-[A-Z0-9]+\b'
+
+# ---------------------------------------------------------------------------
+# Skill detection
+# ---------------------------------------------------------------------------
+skill_patterns:
+  po-status:
+    - '\bPO-\d+\b'
+    - '\b(purchase.?order|po\s+status|order\s+status)\b'
+  inventory:
+    - '\b(inventory|stock|sku|on.?hand|bin.?level|warehouse)\b'
+  delivery-tracking:
+    - '\b(delivery|shipment|dispatch|in.?transit|logistics|eway.?bill)\b'
+  vendor-performance:
+    - '\b(vendor|supplier|performance|rating|scorecard|on.?time)\b'
+  spend-analytics:
+    - '\b(spend|procurement|budget|savings|category.?spend|capex|opex)\b'
+
+# ---------------------------------------------------------------------------
+# Skill scope flags
+# ---------------------------------------------------------------------------
+skill_scope_flags:
+  po-status:
+    plants:   "--allowed-plants"
+    vendors:  "--allowed-vendors"
+  inventory:
+    plants:      "--allowed-plants"
+    warehouses:  "--allowed-warehouses"
+  delivery-tracking:
+    plants:     "--allowed-plants"
+    warehouses: "--allowed-warehouses"
+  vendor-performance:
+    vendors:    "--allowed-vendors"
+    categories: "--allowed-categories"
+  spend-analytics:
+    plants:     "--allowed-plants"
+    categories: "--allowed-categories"
+
+# ---------------------------------------------------------------------------
+# Denial message template
+# ---------------------------------------------------------------------------
+denial_message: >
+  You are not authorised to view data for: {resources}.
+  Your permitted {scope_key} are: {allowed}.
+  Please contact your Regional Head or IT Admin for broader access.

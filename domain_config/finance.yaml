@@ -1,0 +1,104 @@
+domain: finance
+display_name: "Finance & Banking"
+
+# ---------------------------------------------------------------------------
+# Roles
+# NOTE: finance domain has stricter data handling — auditors get read-only
+# access to their assigned branches; compliance officers get global read.
+# ---------------------------------------------------------------------------
+roles:
+  teller:
+    display: "Bank Teller"
+    global_access: false
+  relationship_manager:
+    display: "Relationship Manager"
+    global_access: false
+  branch_manager:
+    display: "Branch Manager"
+    global_access: false
+  regional_manager:
+    display: "Regional Manager"
+    global_access: false
+  auditor:
+    display: "Internal Auditor"
+    global_access: false
+  compliance_officer:
+    display: "Compliance Officer"
+    global_access: true
+  cfo:
+    display: "CFO"
+    global_access: true
+  md:
+    display: "MD / CEO"
+    global_access: true
+  it_admin:
+    display: "IT Admin"
+    global_access: true
+
+# ---------------------------------------------------------------------------
+# Org-unit hierarchy
+# ---------------------------------------------------------------------------
+org_unit_keys:
+  - region
+  - branch
+  - team
+
+# ---------------------------------------------------------------------------
+# Scope resource keys
+# ---------------------------------------------------------------------------
+scope_keys:
+  - branches       # branch codes, e.g. BR-MUM-001
+  - cost_centers   # cost centre codes, e.g. CC-0023
+  - products       # product lines, e.g. PROD-HL (home loan)
+
+# ---------------------------------------------------------------------------
+# Resource ID patterns
+# ---------------------------------------------------------------------------
+resource_patterns:
+  branches:     '\bBR-[A-Z]{2,5}-\d+\b'
+  cost_centers: '\bCC-\d+\b'
+  products:     '\bPROD-[A-Z0-9]+\b'
+
+# ---------------------------------------------------------------------------
+# Skill detection
+# ---------------------------------------------------------------------------
+skill_patterns:
+  account-summary:
+    - '\b(account|balance|statement|casa|savings|current)\b'
+  transaction-report:
+    - '\b(transaction|debit|credit|transfer|payment|upi|neft|rtgs)\b'
+  loan-status:
+    - '\b(loan|emi|repayment|disbursement|npa|npl|delinquency)\b'
+  pl-report:
+    - '\b(p\s*[&and]+\s*l|profit|loss|revenue|income|expense|ebitda|nim|roa|roe)\b'
+  compliance-report:
+    - '\b(compliance|kyc|aml|cft|audit|regulatory|rbi|sebi|fema|suspicious)\b'
+  branch-performance:
+    - '\b(branch|performance|target|achievement|casa.?ratio|npa.?ratio)\b'
+
+# ---------------------------------------------------------------------------
+# Skill scope flags
+# ---------------------------------------------------------------------------
+skill_scope_flags:
+  account-summary:
+    branches: "--allowed-branches"
+  transaction-report:
+    branches: "--allowed-branches"
+  loan-status:
+    branches:  "--allowed-branches"
+    products:  "--allowed-products"
+  pl-report:
+    branches:     "--allowed-branches"
+    cost_centers: "--allowed-cost-centers"
+  compliance-report:
+    branches: "--allowed-branches"
+  branch-performance:
+    branches: "--allowed-branches"
+
+# ---------------------------------------------------------------------------
+# Denial message template
+# ---------------------------------------------------------------------------
+denial_message: >
+  You are not authorised to view data for: {resources}.
+  Your permitted {scope_key} are: {allowed}.
+  Please contact your Regional Manager or Compliance team for access.

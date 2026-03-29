@@ -1,19 +1,19 @@
 """
-rbac/db.py — PostgreSQL database setup for the DotClaw RBAC layer.
+rbac/db.py — PostgreSQL setup for the DotClaw generic RBAC layer.
 
-Uses a SimpleConnectionPool so every request grabs a connection from the
-pool, executes, commits/rolls-back, and returns it — no connection leaks.
+Schema changes from v1 (DISCOM-only):
+  - Added  : domain TEXT column on users
+  - Replaced: allowed_feeders/allowed_zones/allowed_dts → scope JSONB
+  - Replaced: circle/division/sub_division              → org_unit JSONB
+  - Result  : one schema works for any domain (DISCOM, supply chain, finance …)
 
 Required env var:
     DATABASE_URL=postgresql://user:password@host:5432/dotclaw_rbac
-
-Tables:
-    users       — WA number → role + organisational scope
-    audit_log   — every query attempt (allowed or denied)
 """
 
 from __future__ import annotations
 
+import json
 import os
 
 import psycopg2
@@ -25,19 +25,19 @@ DATABASE_URL: str = os.getenv(
     "postgresql://dotclaw:dotclaw@localhost:5432/dotclaw_rbac",
 )
 
-# DDL — executed once on startup via init_db()
+# ---------------------------------------------------------------------------
+# DDL
+# ---------------------------------------------------------------------------
+
 _CREATE_USERS = """
 CREATE TABLE IF NOT EXISTS users (
     wa_number       TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
     employee_id     TEXT,
     role            TEXT NOT NULL,
-    circle          TEXT,
-    division        TEXT,
-    sub_division    TEXT,
-    allowed_feeders TEXT,
-    allowed_zones   TEXT,
-    allowed_dts     TEXT,
+    domain          TEXT NOT NULL DEFAULT 'discom',
+    org_unit        JSONB NOT NULL DEFAULT '{}',
+    scope           JSONB NOT NULL DEFAULT '{}',
     active          INTEGER NOT NULL DEFAULT 1,
     registered_by   TEXT DEFAULT 'admin',
     registered_at   TIMESTAMPTZ DEFAULT NOW(),
@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     wa_number   TEXT NOT NULL,
     role        TEXT,
+    domain      TEXT,
     skill       TEXT,
     query       TEXT,
     allowed     INTEGER NOT NULL,
@@ -58,9 +59,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 """
 
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 # Connection pool (lazily initialised)
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 
 _pool: psycopg2.pool.SimpleConnectionPool | None = None
 
@@ -74,12 +75,8 @@ def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
 
 class _ManagedConn:
     """
-    Context manager that borrows a connection from the pool, auto-commits on
-    success and auto-rolls-back on exception, then returns the connection.
-
-    Usage:
-        with get_conn() as conn:
-            conn.execute(...)   # via cursor helper below
+    Context manager: borrow a connection from the pool, auto-commit on
+    success, auto-rollback on exception, then return to pool.
     """
 
     def __init__(self) -> None:
@@ -99,27 +96,24 @@ class _ManagedConn:
                 self._conn.commit()
         finally:
             _get_pool().putconn(self._conn)
-        return False  # do not suppress exceptions
+        return False
 
 
 def get_conn() -> _ManagedConn:
-    """Return a context manager that yields a pooled psycopg2 connection."""
     return _ManagedConn()
 
 
-# --------------------------------------------------------------------------- #
-# Convenience query helpers (mirror the sqlite3 conn.execute() pattern)
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
+# Query helpers (mirror the sqlite3 conn.execute pattern)
+# ---------------------------------------------------------------------------
 
 def execute(conn, sql: str, params: tuple = ()) -> psycopg2.extensions.cursor:
-    """Run a single DML statement; returns cursor (rowcount available)."""
     cur = conn.cursor()
     cur.execute(sql, params)
     return cur
 
 
 def fetchone(conn, sql: str, params: tuple = ()) -> dict | None:
-    """Execute a SELECT and return the first row as a dict, or None."""
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(sql, params)
     row = cur.fetchone()
@@ -127,15 +121,19 @@ def fetchone(conn, sql: str, params: tuple = ()) -> dict | None:
 
 
 def fetchall(conn, sql: str, params: tuple = ()) -> list[dict]:
-    """Execute a SELECT and return all rows as a list of dicts."""
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(sql, params)
     return [dict(r) for r in cur.fetchall()]
 
 
-# --------------------------------------------------------------------------- #
+def json_param(value: dict) -> psycopg2.extras.Json:
+    """Wrap a dict as a psycopg2 Json parameter for JSONB columns."""
+    return psycopg2.extras.Json(value)
+
+
+# ---------------------------------------------------------------------------
 # Schema initialisation
-# --------------------------------------------------------------------------- #
+# ---------------------------------------------------------------------------
 
 def init_db() -> None:
     """Create tables if they don't exist. Safe to call repeatedly."""

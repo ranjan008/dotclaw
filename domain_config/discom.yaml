@@ -1,0 +1,102 @@
+domain: discom
+display_name: "DISCOM — Power Distribution"
+
+# ---------------------------------------------------------------------------
+# Roles
+# global_access: true  → user can query ANY resource without a scope whitelist
+# ---------------------------------------------------------------------------
+roles:
+  junior_engineer:
+    display: "Junior Engineer"
+    global_access: false
+  revenue_protection:
+    display: "Revenue Protection Officer"
+    global_access: false
+  sub_division_ae:
+    display: "Sub-Division AE/AEE"
+    global_access: false
+  division_ee:
+    display: "Division EE"
+    global_access: false
+  circle_se:
+    display: "Circle SE"
+    global_access: false
+  mis_finance:
+    display: "MIS / Finance"
+    global_access: true
+  director_ops:
+    display: "Director (Operations)"
+    global_access: true
+  cmd:
+    display: "CMD / MD"
+    global_access: true
+  it_admin:
+    display: "IT Admin"
+    global_access: true
+
+# ---------------------------------------------------------------------------
+# Org-unit hierarchy keys (stored in users.org_unit JSONB)
+# ---------------------------------------------------------------------------
+org_unit_keys:
+  - circle
+  - division
+  - sub_division
+
+# ---------------------------------------------------------------------------
+# Scope resource keys (stored in users.scope JSONB)
+# Each key maps to a list of permitted resource IDs.
+# ---------------------------------------------------------------------------
+scope_keys:
+  - feeders      # SCADA feeder IDs, e.g. FDR-001
+  - zones        # OMS zone names, e.g. Zone-A
+  - dts          # AMI DT cluster IDs, e.g. DT-001
+
+# ---------------------------------------------------------------------------
+# Resource ID patterns — used by middleware to extract resource IDs from
+# the incoming message text and check them against the user's scope.
+# ---------------------------------------------------------------------------
+resource_patterns:
+  feeders: '\bFDR-\d+\b'
+  zones:   '\bZone-[A-Za-z0-9]+\b'
+  dts:     '\bDT-\d+\b'
+
+# ---------------------------------------------------------------------------
+# Skill detection — ordered list of regex patterns per skill.
+# First match wins.
+# ---------------------------------------------------------------------------
+skill_patterns:
+  scada-feeder:
+    - '\bFDR-\d+\b.*\b(load|voltage|power|scada|telemetry|capacity)\b'
+    - '\b(load|voltage|power|scada|telemetry|capacity)\b.*\bFDR-\d+\b'
+    - '\bFDR-\d+\b'
+  outage-status:
+    - '\b(outage|fault|trip|restoration|crew|oms)\b'
+  atc-analytics:
+    - '\b(atc|loss|aggregate|billed|units|efficiency)\b'
+  ami-meters:
+    - '\b(meter|tamper|zero.?read|comm.?fail|ami|anomaly|anomalies)\b'
+
+# ---------------------------------------------------------------------------
+# Skill scope flags — when the agent invokes a skill, it passes these
+# CLI flags to enforce scope at the script level (second defence layer).
+# Format: skill → scope_key → CLI flag name
+# ---------------------------------------------------------------------------
+skill_scope_flags:
+  scada-feeder:
+    feeders: "--allowed-feeders"
+  outage-status:
+    zones:   "--allowed-zones"
+    feeders: "--allowed-feeders"
+  atc-analytics:
+    feeders: "--allowed-feeders"
+  ami-meters:
+    dts: "--allowed-dts"
+
+# ---------------------------------------------------------------------------
+# Denial message template (shown to user when access is blocked)
+# {resources} and {scope_key} are substituted at runtime.
+# ---------------------------------------------------------------------------
+denial_message: >
+  You are not authorised to view data for: {resources}.
+  Your permitted {scope_key} are: {allowed}.
+  Please contact your EE / SE if you need broader access.

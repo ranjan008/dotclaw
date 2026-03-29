@@ -11,6 +11,7 @@ def log_access(
     wa_number: str,
     *,
     role: str = "",
+    domain: str = "",
     skill: str = "",
     query: str = "",
     allowed: bool,
@@ -22,15 +23,14 @@ def log_access(
         execute(
             conn,
             """
-            INSERT INTO audit_log (wa_number, role, skill, query, allowed, deny_reason)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO audit_log (wa_number, role, domain, skill, query, allowed, deny_reason)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
-            (wa_number, role, skill, query[:500], 1 if allowed else 0, deny_reason),
+            (wa_number, role, domain, skill, query[:500], 1 if allowed else 0, deny_reason),
         )
 
 
 def get_recent(wa_number: str, hours: int = 24) -> list[dict]:
-    """Return recent audit entries for a WA number."""
     init_db()
     with get_conn() as conn:
         return fetchall(
@@ -46,7 +46,6 @@ def get_recent(wa_number: str, hours: int = 24) -> list[dict]:
 
 
 def get_denied(hours: int = 24) -> list[dict]:
-    """Return all denied access attempts in the last N hours."""
     init_db()
     with get_conn() as conn:
         return fetchall(
