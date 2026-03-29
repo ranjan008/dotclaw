@@ -1,19 +1,32 @@
 """
-rbac/db.py — SQLite database setup for the DotClaw RBAC layer.
+rbac/db.py — PostgreSQL database setup for the DotClaw RBAC layer.
 
-Creates two tables:
-  - users       : WA number → role + organisational scope
-  - audit_log   : every query attempt (allowed or denied)
+Uses a SimpleConnectionPool so every request grabs a connection from the
+pool, executes, commits/rolls-back, and returns it — no connection leaks.
+
+Required env var:
+    DATABASE_URL=postgresql://user:password@host:5432/dotclaw_rbac
+
+Tables:
+    users       — WA number → role + organisational scope
+    audit_log   — every query attempt (allowed or denied)
 """
 
+from __future__ import annotations
+
 import os
-import sqlite3
 
-# DB file lives at project root by default; can be overridden via env var
-_DEFAULT_DB = os.path.join(os.path.dirname(__file__), "..", "rbac.db")
-DB_PATH = os.getenv("RBAC_DB_PATH", os.path.abspath(_DEFAULT_DB))
+import psycopg2
+import psycopg2.extras
+import psycopg2.pool
 
-SCHEMA = """
+DATABASE_URL: str = os.getenv(
+    "DATABASE_URL",
+    "postgresql://dotclaw:dotclaw@localhost:5432/dotclaw_rbac",
+)
+
+# DDL — executed once on startup via init_db()
+_CREATE_USERS = """
 CREATE TABLE IF NOT EXISTS users (
     wa_number       TEXT PRIMARY KEY,
     name            TEXT NOT NULL,
@@ -22,36 +35,110 @@ CREATE TABLE IF NOT EXISTS users (
     circle          TEXT,
     division        TEXT,
     sub_division    TEXT,
-    allowed_feeders TEXT,   -- comma-separated, e.g. "FDR-001,FDR-002"
-    allowed_zones   TEXT,   -- comma-separated, e.g. "Zone-A,Zone-B"
-    allowed_dts     TEXT,   -- comma-separated DT cluster IDs for AMI scope
+    allowed_feeders TEXT,
+    allowed_zones   TEXT,
+    allowed_dts     TEXT,
     active          INTEGER NOT NULL DEFAULT 1,
     registered_by   TEXT DEFAULT 'admin',
-    registered_at   TEXT DEFAULT (datetime('now')),
-    last_active     TEXT
-);
-
-CREATE TABLE IF NOT EXISTS audit_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts              TEXT NOT NULL DEFAULT (datetime('now')),
-    wa_number       TEXT NOT NULL,
-    role            TEXT,
-    skill           TEXT,
-    query           TEXT,
-    allowed         INTEGER NOT NULL,  -- 1 = permitted, 0 = denied
-    deny_reason     TEXT
+    registered_at   TIMESTAMPTZ DEFAULT NOW(),
+    last_active     TIMESTAMPTZ
 );
 """
 
+_CREATE_AUDIT = """
+CREATE TABLE IF NOT EXISTS audit_log (
+    id          BIGSERIAL PRIMARY KEY,
+    ts          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    wa_number   TEXT NOT NULL,
+    role        TEXT,
+    skill       TEXT,
+    query       TEXT,
+    allowed     INTEGER NOT NULL,
+    deny_reason TEXT
+);
+"""
 
-def get_conn() -> sqlite3.Connection:
-    """Return a connection with row_factory set to dict-like Row."""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+# --------------------------------------------------------------------------- #
+# Connection pool (lazily initialised)
+# --------------------------------------------------------------------------- #
 
+_pool: psycopg2.pool.SimpleConnectionPool | None = None
+
+
+def _get_pool() -> psycopg2.pool.SimpleConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = psycopg2.pool.SimpleConnectionPool(1, 10, DATABASE_URL)
+    return _pool
+
+
+class _ManagedConn:
+    """
+    Context manager that borrows a connection from the pool, auto-commits on
+    success and auto-rolls-back on exception, then returns the connection.
+
+    Usage:
+        with get_conn() as conn:
+            conn.execute(...)   # via cursor helper below
+    """
+
+    def __init__(self) -> None:
+        self._conn: psycopg2.extensions.connection | None = None
+
+    def __enter__(self) -> psycopg2.extensions.connection:
+        self._conn = _get_pool().getconn()
+        return self._conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        if self._conn is None:
+            return False
+        try:
+            if exc_type:
+                self._conn.rollback()
+            else:
+                self._conn.commit()
+        finally:
+            _get_pool().putconn(self._conn)
+        return False  # do not suppress exceptions
+
+
+def get_conn() -> _ManagedConn:
+    """Return a context manager that yields a pooled psycopg2 connection."""
+    return _ManagedConn()
+
+
+# --------------------------------------------------------------------------- #
+# Convenience query helpers (mirror the sqlite3 conn.execute() pattern)
+# --------------------------------------------------------------------------- #
+
+def execute(conn, sql: str, params: tuple = ()) -> psycopg2.extensions.cursor:
+    """Run a single DML statement; returns cursor (rowcount available)."""
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    return cur
+
+
+def fetchone(conn, sql: str, params: tuple = ()) -> dict | None:
+    """Execute a SELECT and return the first row as a dict, or None."""
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(sql, params)
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+def fetchall(conn, sql: str, params: tuple = ()) -> list[dict]:
+    """Execute a SELECT and return all rows as a list of dicts."""
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(sql, params)
+    return [dict(r) for r in cur.fetchall()]
+
+
+# --------------------------------------------------------------------------- #
+# Schema initialisation
+# --------------------------------------------------------------------------- #
 
 def init_db() -> None:
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist. Safe to call repeatedly."""
     with get_conn() as conn:
-        conn.executescript(SCHEMA)
+        execute(conn, _CREATE_USERS)
+        execute(conn, _CREATE_AUDIT)

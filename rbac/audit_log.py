@@ -4,7 +4,7 @@ rbac/audit_log.py — Write and query the RBAC audit log.
 
 from __future__ import annotations
 
-from .db import get_conn, init_db
+from .db import execute, fetchall, get_conn, init_db
 
 
 def log_access(
@@ -19,10 +19,11 @@ def log_access(
     """Append one row to audit_log."""
     init_db()
     with get_conn() as conn:
-        conn.execute(
+        execute(
+            conn,
             """
             INSERT INTO audit_log (wa_number, role, skill, query, allowed, deny_reason)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
             """,
             (wa_number, role, skill, query[:500], 1 if allowed else 0, deny_reason),
         )
@@ -32,29 +33,29 @@ def get_recent(wa_number: str, hours: int = 24) -> list[dict]:
     """Return recent audit entries for a WA number."""
     init_db()
     with get_conn() as conn:
-        rows = conn.execute(
+        return fetchall(
+            conn,
             """
             SELECT * FROM audit_log
-            WHERE wa_number = ?
-              AND ts >= datetime('now', ? || ' hours')
+            WHERE wa_number = %s
+              AND ts >= NOW() - (%s * INTERVAL '1 hour')
             ORDER BY ts DESC
             """,
-            (wa_number, f"-{hours}"),
-        ).fetchall()
-    return [dict(r) for r in rows]
+            (wa_number, hours),
+        )
 
 
 def get_denied(hours: int = 24) -> list[dict]:
     """Return all denied access attempts in the last N hours."""
     init_db()
     with get_conn() as conn:
-        rows = conn.execute(
+        return fetchall(
+            conn,
             """
             SELECT * FROM audit_log
             WHERE allowed = 0
-              AND ts >= datetime('now', ? || ' hours')
+              AND ts >= NOW() - (%s * INTERVAL '1 hour')
             ORDER BY ts DESC
             """,
-            (f"-{hours}",),
-        ).fetchall()
-    return [dict(r) for r in rows]
+            (hours,),
+        )

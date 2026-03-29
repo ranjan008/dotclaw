@@ -10,10 +10,9 @@ Roles (lowest → highest privilege):
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import Optional
 
-from .db import get_conn, init_db
+from .db import execute, fetchall, fetchone, get_conn, init_db
 
 # --------------------------------------------------------------------------- #
 # Role definitions
@@ -81,23 +80,23 @@ def add_user(
         raise ValueError(f"Unknown role '{role}'. Valid roles: {sorted(VALID_ROLES)}")
 
     wa = _normalise_wa(wa_number)
-    now = datetime.now(timezone.utc).isoformat()
 
     with get_conn() as conn:
-        conn.execute(
+        execute(
+            conn,
             """
             INSERT INTO users
               (wa_number, name, employee_id, role, circle, division, sub_division,
-               allowed_feeders, allowed_zones, allowed_dts, active, registered_by, registered_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)
+               allowed_feeders, allowed_zones, allowed_dts, active, registered_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s)
             """,
             (
                 wa, name, employee_id, role,
                 circle, division, sub_division,
                 _join(allowed_feeders or []),
-                _join(allowed_zones or []),
-                _join(allowed_dts or []),
-                registered_by, now,
+                _join(allowed_zones  or []),
+                _join(allowed_dts    or []),
+                registered_by,
             ),
         )
     return get_user(wa)
@@ -108,12 +107,11 @@ def get_user(wa_number: str) -> Optional[dict]:
     init_db()
     wa = _normalise_wa(wa_number)
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM users WHERE wa_number = ? AND active = 1", (wa,)
-        ).fetchone()
-    if row is None:
-        return None
-    return dict(row)
+        return fetchone(
+            conn,
+            "SELECT * FROM users WHERE wa_number = %s AND active = 1",
+            (wa,),
+        )
 
 
 def deactivate_user(wa_number: str) -> bool:
@@ -121,20 +119,15 @@ def deactivate_user(wa_number: str) -> bool:
     init_db()
     wa = _normalise_wa(wa_number)
     with get_conn() as conn:
-        cur = conn.execute(
-            "UPDATE users SET active = 0 WHERE wa_number = ?", (wa,)
-        )
+        cur = execute(conn, "UPDATE users SET active = 0 WHERE wa_number = %s", (wa,))
     return cur.rowcount > 0
 
 
 def touch_user(wa_number: str) -> None:
     """Update last_active timestamp."""
     wa = _normalise_wa(wa_number)
-    now = datetime.now(timezone.utc).isoformat()
     with get_conn() as conn:
-        conn.execute(
-            "UPDATE users SET last_active = ? WHERE wa_number = ?", (now, wa)
-        )
+        execute(conn, "UPDATE users SET last_active = NOW() WHERE wa_number = %s", (wa,))
 
 
 def list_users(
@@ -146,22 +139,22 @@ def list_users(
 ) -> list[dict]:
     """Return users matching optional filters."""
     init_db()
-    query = "SELECT * FROM users WHERE 1=1"
+    clauses = ["1=1"]
     params: list = []
     if active_only:
-        query += " AND active = 1"
+        clauses.append("active = 1")
     if circle:
-        query += " AND circle = ?"
+        clauses.append("circle = %s")
         params.append(circle)
     if division:
-        query += " AND division = ?"
+        clauses.append("division = %s")
         params.append(division)
     if role:
-        query += " AND role = ?"
+        clauses.append("role = %s")
         params.append(role)
+    sql = "SELECT * FROM users WHERE " + " AND ".join(clauses)
     with get_conn() as conn:
-        rows = conn.execute(query, params).fetchall()
-    return [dict(r) for r in rows]
+        return fetchall(conn, sql, tuple(params))
 
 
 def get_scope(user: dict) -> dict:
@@ -171,7 +164,7 @@ def get_scope(user: dict) -> dict:
     Returns:
         {
           "all_access": bool,           # True for CMD / director / IT admin
-          "allowed_feeders": list[str], # empty = no feeder restriction (global roles)
+          "allowed_feeders": list[str],
           "allowed_zones":   list[str],
           "allowed_dts":     list[str],
         }
