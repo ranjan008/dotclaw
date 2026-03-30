@@ -3,6 +3,7 @@ DotClaw Mock API Server — DISCOM OT + Supply Chain + Finance
 Simulates SCADA/OMS/MDMS, Supply Chain, and Finance endpoints for PoC testing.
 """
 
+import utils.session
 import os
 from datetime import datetime, timedelta
 from functools import wraps
